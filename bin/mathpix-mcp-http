@@ -14,6 +14,7 @@ require 'rack'
 require 'mathpix'
 require 'mathpix/mcp'
 require 'mathpix/mcp/http_app'
+require 'mathpix/mcp/upload_ticket'
 require 'mathpix/mcp/ocr_app'
 
 Mathpix.configure do |config|
@@ -29,9 +30,11 @@ if token.nil? || token.empty?
 end
 
 # /ocr accepts a document upload and forwards it to Mathpix; / remains the MCP
-# Streamable HTTP transport, unchanged. Both sit behind the same bearer check.
+# Streamable HTTP transport, unchanged. /ocr takes the bearer token OR a signed
+# single-use ticket minted over the MCP channel, so a caller can upload without
+# ever holding the long-lived token.
 app = Rack::URLMap.new(
-  '/ocr' => Mathpix::MCP::HttpApp::BearerAuth.new(Mathpix::MCP::OcrApp.build, token: token),
+  '/ocr' => Mathpix::MCP::OcrApp.guarded(token: token),
   '/' => Mathpix::MCP::HttpApp.build(token: token)
 )
 
