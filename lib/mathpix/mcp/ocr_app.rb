@@ -30,6 +30,8 @@ module Mathpix
       module_function
 
       DEFAULT_FORMATS = [:markdown].freeze
+      # Names callers naturally reach for, mapped to the result keys.
+      ALIASES = { md: :markdown, mmd: :markdown, tex: :latex }.freeze
       # Mathpix accepts up to 1 GB per document on multipart upload.
       DEFAULT_MAX_MB = 1024
       # Cap for the optional blocking mode, kept well under typical edge timeouts.
@@ -159,28 +161,45 @@ module Mathpix
         # blocks if the caller polled early.
         wait = [request.params.fetch('max_wait', 30).to_i, MAX_BLOCKING_WAIT].min
         conversion.wait_until_complete(max_wait: wait, poll_interval: 3.0)
-        json(200, payload_for(conversion_id, conversion.result))
+        json(200, payload_for(conversion_id, conversion.result, formats_from(request)))
       rescue Mathpix::TimeoutError
         json(202, pdf_id: conversion_id, status: 'processing')
       end
 
       # --- helpers ---------------------------------------------------------
 
-      def payload_for(conversion_id, result)
-        contents = {
+      # Mathpix populates every format it produced, not only the ones asked
+      # for — its HTML rendering alone is ~34 KB of boilerplate per document.
+      # Returning it unasked is pure waste for a caller that wanted Markdown,
+      # so the response carries only the requested formats.
+      def payload_for(conversion_id, result, formats = DEFAULT_FORMATS)
+        available = {
           markdown: result.markdown,
           latex: result.latex,
           html: result.html
         }.compact
 
+        wanted = formats.map { |f| ALIASES.fetch(f, f) }
+        contents = available.select { |format, _| wanted.include?(format) }
+        # Never return an empty body because of an unrecognised format name.
+        contents = available.slice(:markdown) if contents.empty?
+        contents = available if contents.empty?
+
         {
           success: true,
           pdf_id: conversion_id,
-          pages: result.page_count,
+          pages: positive_or_nil(result.page_count),
           processing_time: result.processing_time,
           chars: contents.transform_values(&:length),
+          omitted: (available.keys - contents.keys),
           results: contents
         }
+      end
+
+      # page_count comes back as 0 on some payloads even when the conversion
+      # reported pages; report nothing rather than a misleading zero.
+      def positive_or_nil(value)
+        value.to_i.positive? ? value.to_i : nil
       end
 
       def formats_from(request)
