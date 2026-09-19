@@ -116,7 +116,8 @@ module Mathpix
           Tools::SearchResultsTool,
           Tools::GetUsageTool,
           Tools::GetAccountInfoTool,
-          Tools::ListFormatsTool
+          Tools::ListFormatsTool,
+          Tools::CreateUploadTicketTool
         ]
       end
     end
